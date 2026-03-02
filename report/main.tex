@@ -1,0 +1,47 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\title{NanoVLM Fine-Tuning in MiniGrid EmptyEnv\\SFT vs GRPO-Action vs GRPO-Text+Action}
+\author{T\_Lab Pipeline}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+This report summarizes a reproducible training pipeline for controlling an agent in MiniGrid EmptyEnv with NanoVLM, comparing supervised fine-tuning (SFT) and two GRPO variants.
+
+\section{Method}
+We train a policy to output action tokens from RGB observations and mission text. GRPO uses grouped rollouts and normalized advantages within each group.
+
+\section{Setup}
+Default environment is \texttt{MiniGrid-Empty-8x8-v0} with \texttt{RGBImgObsWrapper}. The model starts from \texttt{lusxvr/nanoVLM-222M} and uses PEFT-lite updates.
+
+\section{Results}
+\subsection{Curves}
+\begin{figure}[h]
+  \centering
+  \IfFileExists{figures/success_vs_env_steps.png}{\includegraphics[width=0.8\linewidth]{figures/success_vs_env_steps.png}}{\fbox{Missing figure: success\_vs\_env\_steps.png}}
+  \caption{Success rate vs environment steps.}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \IfFileExists{figures/return_vs_env_steps.png}{\includegraphics[width=0.8\linewidth]{figures/return_vs_env_steps.png}}{\fbox{Missing figure: return\_vs\_env\_steps.png}}
+  \caption{Average return vs environment steps.}
+\end{figure}
+
+\subsection{Summary Table}
+\IfFileExists{tables/results_table.tex}{\input{tables/results_table.tex}}{\fbox{Missing table: tables/results\_table.tex}}
+
+\section{Discussion}
+The artifacts in \texttt{results/} and generated plots/tables allow direct comparison of sample efficiency and final performance.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

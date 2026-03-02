@@ -1,0 +1,43 @@
+experiment:
+  name: grpo_action
+  output_dir: results/grpo_action
+  seed: 42
+  device: auto
+
+env:
+  env_id: MiniGrid-Empty-8x8-v0
+  tile_size: 8
+  max_steps: null
+  eval_episodes: 500
+
+data:
+  dataset_dir: results/expert_dataset
+
+model:
+  init_checkpoint: results/sft/checkpoints/best
+  reference_checkpoint: results/sft/checkpoints/best
+  nanovlm_source: lusxvr/nanoVLM-222M
+  max_prompt_length: 160
+  freeze_backbones: true
+  unfreeze_embeddings: true
+  unfreeze_lm_head: true
+
+train:
+  iterations: 120
+  group_size: 4
+  prompts_per_iter: 8
+  ppo_epochs: 2
+  minibatch_size: 32
+  lr: 1.0e-5
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  epsilon: 0.2
+  beta: 0.02
+  temperature: 1.0
+  eval_every_iters: 10
+
+logging:
+  log_backend: none
+  use_wandb: false
+  use_tensorboard: false
+  console_every_steps: 1

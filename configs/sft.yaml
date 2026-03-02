@@ -1,0 +1,47 @@
+experiment:
+  name: sft
+  output_dir: results/sft
+  seed: 42
+  device: auto
+
+env:
+  env_id: MiniGrid-Empty-8x8-v0
+  tile_size: 8
+  max_steps: null
+  eval_episodes: 500
+
+data:
+  dataset_dir: results/expert_dataset
+  train_split: 0.9
+  split_seed: 42
+  use_prompt_variants: true
+  prompt_variant_count: 3
+  balance_actions: true
+  balance_mode: weighted_ce
+  num_expert_episodes: 2000
+  image_size: 224
+
+model:
+  nanovlm_source: lusxvr/nanoVLM-222M
+  max_prompt_length: 160
+  freeze_backbones: true
+  unfreeze_embeddings: true
+  unfreeze_lm_head: true
+
+train:
+  epochs: 2
+  batch_size: 8
+  grad_accum: 1
+  lr: 2.0e-4
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  warmup_steps: 50
+  eval_every_steps: 100
+  save_every_steps: 250
+  num_workers: 0
+
+logging:
+  log_backend: none
+  use_wandb: false
+  use_tensorboard: false
+  console_every_steps: 20
