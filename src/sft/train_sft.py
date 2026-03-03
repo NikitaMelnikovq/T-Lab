@@ -151,6 +151,18 @@ def main():
     train_loader = build_dataloader(cfg, train_ds, tokenizer, action_mapping, split_name="train")
     val_loader = build_dataloader(cfg, val_ds, tokenizer, action_mapping, split_name="val")
 
+    train_counts = train_ds.action_counts()
+    val_counts = val_ds.action_counts()
+    logger.info(f"Train action counts: {train_counts}")
+    logger.info(f"Val action counts  : {val_counts}")
+    nonzero_actions = sum(1 for _, c in train_counts.items() if c > 0)
+    if nonzero_actions < 3:
+        logger.warning(
+            "Low action diversity in train split (nonzero action classes=%d). "
+            "Use Empty-Random envs or mixed sizes in data.collect_envs for a less trivial benchmark.",
+            nonzero_actions,
+        )
+
     class_weights = None
     if data_cfg.get("balance_actions", False) and data_cfg.get("balance_mode", "weighted_ce") == "weighted_ce":
         class_weights = compute_class_weights(train_ds, device=device)

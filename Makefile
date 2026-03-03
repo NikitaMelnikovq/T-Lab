@@ -1,12 +1,15 @@
 PYTHON ?= python3
 
-.PHONY: install collect sft grpo_action grpo_text_action plots summary report smoke run_all
+.PHONY: install collect dataset_stats sft grpo_action grpo_text_action plots summary report smoke run_all
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
 
 collect:
 	$(PYTHON) scripts/collect_expert.py --config configs/sft.yaml
+
+dataset_stats:
+	$(PYTHON) scripts/show_dataset_stats.py --dataset_dir results/expert_dataset
 
 sft:
 	$(PYTHON) -m src.sft.train_sft --config configs/sft.yaml

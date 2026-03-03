@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.venv/
+venv/
+.env
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+# Artifacts
+results/*
+!results/.gitkeep
+report/figures/*
+!report/figures/.gitkeep
+report/tables/*
+!report/tables/.gitkeep
+report/*.pdf
+
+# Logs
+*.log
+wandb/
+runs/
+
+# Model checkpoints
+checkpoints/

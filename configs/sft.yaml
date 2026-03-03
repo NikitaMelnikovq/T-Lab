@@ -5,10 +5,10 @@ experiment:
   device: auto
 
 env:
-  env_id: MiniGrid-Empty-8x8-v0
+  env_id: MiniGrid-Empty-Random-6x6-v0
   tile_size: 8
   max_steps: null
-  eval_episodes: 500
+  eval_episodes: 300
 
 data:
   dataset_dir: results/expert_dataset
@@ -18,8 +18,17 @@ data:
   prompt_variant_count: 3
   balance_actions: true
   balance_mode: weighted_ce
-  num_expert_episodes: 2000
+  num_expert_episodes: 3000
   image_size: 224
+  collect_envs:
+    - env_id: MiniGrid-Empty-Random-5x5-v0
+      weight: 0.2
+    - env_id: MiniGrid-Empty-Random-6x6-v0
+      weight: 0.4
+    - env_id: MiniGrid-Empty-8x8-v0
+      weight: 0.3
+    - env_id: MiniGrid-Empty-16x16-v0
+      weight: 0.1
 
 model:
   nanovlm_source: lusxvr/nanoVLM-222M

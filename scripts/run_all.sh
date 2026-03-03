@@ -4,6 +4,7 @@ set -euo pipefail
 PYTHON=${PYTHON:-python3}
 
 $PYTHON scripts/collect_expert.py --config configs/sft.yaml
+$PYTHON scripts/show_dataset_stats.py --dataset_dir results/expert_dataset
 $PYTHON -m src.sft.train_sft --config configs/sft.yaml
 $PYTHON -m src.grpo.train_grpo_action --config configs/grpo_action.yaml
 $PYTHON -m src.grpo.train_grpo_text_action --config configs/grpo_text_action.yaml

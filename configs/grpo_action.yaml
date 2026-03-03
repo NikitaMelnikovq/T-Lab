@@ -5,10 +5,10 @@ experiment:
   device: auto
 
 env:
-  env_id: MiniGrid-Empty-8x8-v0
+  env_id: MiniGrid-Empty-Random-6x6-v0
   tile_size: 8
   max_steps: null
-  eval_episodes: 500
+  eval_episodes: 300
 
 data:
   dataset_dir: results/expert_dataset

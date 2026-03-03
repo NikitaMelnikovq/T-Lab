@@ -6,7 +6,8 @@ Reproducible Python repository for:
 - **GRPO (action)**
 - **GRPO (text+action)**
 
-Environment: `MiniGrid-Empty-8x8-v0` + `RGBImgObsWrapper`.
+Default training/eval environment: `MiniGrid-Empty-Random-6x6-v0` + `RGBImgObsWrapper`.
+Expert data collection mixes random EmptyEnv sizes via `data.collect_envs` in `configs/sft.yaml`.
 
 ## Features
 
@@ -35,6 +36,7 @@ src/
   grpo/
 scripts/
   collect_expert.py
+  show_dataset_stats.py
   evaluate.py
   make_plots.py
   summarize_results.py
@@ -66,12 +68,13 @@ bash scripts/run_all.sh
 This performs:
 
 1. Expert dataset collection.
-2. SFT training.
-3. GRPO-action training.
-4. GRPO-text+action training.
-5. Plot generation.
-6. Results summary table.
-7. PDF report build (if `pdflatex` is installed).
+2. Dataset stats check (action/env distribution).
+3. SFT training.
+4. GRPO-action training.
+5. GRPO-text+action training.
+6. Plot generation.
+7. Results summary table.
+8. PDF report build (if `pdflatex` is installed).
 
 If `pdflatex` is missing, pipeline continues and prints a warning.
 
@@ -84,6 +87,12 @@ python scripts/collect_expert.py --config configs/sft.yaml
 ```
 
 Output default: `results/expert_dataset/`
+
+Optional quick sanity check:
+
+```bash
+python scripts/show_dataset_stats.py --dataset_dir results/expert_dataset
+```
 
 ### 2) Train SFT
 
