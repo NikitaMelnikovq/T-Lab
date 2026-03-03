@@ -26,12 +26,14 @@ def evaluate_policy(
     device: str,
     tile_size: int = 8,
     max_steps=None,
+    show_progress: bool = True,
 ) -> Dict[str, float]:
     successes = 0
     returns = []
     steps_to_goal = []
 
-    for ep in tqdm(range(eval_episodes), desc="Evaluating", leave=False):
+    iterator = tqdm(range(eval_episodes), desc="Evaluating", leave=False, disable=not show_progress)
+    for ep in iterator:
         env, obs, _ = make_env(
             env_id=env_id,
             seed=seed + ep,

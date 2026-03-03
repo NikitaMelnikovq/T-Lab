@@ -102,6 +102,14 @@ python -m src.sft.train_sft --config configs/sft.yaml
 
 Output default: `results/sft/`
 
+Default lightweight eval settings in `configs/sft.yaml`:
+
+- `train.eval_every_steps: 500`
+- `train.val_episodes: 20` (during training)
+- `env.eval_episodes: 200` (final evaluation only)
+- `train.early_stop_success_rate: 1.0`
+- `train.early_stop_patience: 3`
+
 ### 3) Train GRPO-action
 
 ```bash

@@ -8,7 +8,7 @@ env:
   env_id: MiniGrid-Empty-Random-6x6-v0
   tile_size: 8
   max_steps: null
-  eval_episodes: 300
+  eval_episodes: 200
 
 data:
   dataset_dir: results/expert_dataset
@@ -45,7 +45,11 @@ train:
   weight_decay: 0.0
   max_grad_norm: 1.0
   warmup_steps: 50
-  eval_every_steps: 100
+  eval_every_steps: 500
+  val_episodes: 20
+  early_stop_success_rate: 1.0
+  early_stop_patience: 3
+  eval_show_progress: false
   save_every_steps: 250
   num_workers: 0
 

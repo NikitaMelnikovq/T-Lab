@@ -75,11 +75,11 @@ def build_dataloader(cfg, dataset, tokenizer, action_mapping, split_name: str):
     return loader
 
 
-def evaluate_val_loss(model, val_loader, action_mapping, device: str, class_weights=None):
+def evaluate_val_loss(model, val_loader, action_mapping, device: str, class_weights=None, max_batches: int | None = None):
     model.eval()
     losses = []
     with torch.no_grad():
-        for batch in val_loader:
+        for batch_idx, batch in enumerate(val_loader):
             images = batch["images"].to(device)
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
@@ -90,6 +90,8 @@ def evaluate_val_loss(model, val_loader, action_mapping, device: str, class_weig
             action_logits = gather_action_logits(vocab_logits, action_mapping.action_token_ids)
             loss = torch.nn.functional.cross_entropy(action_logits, action_ids, weight=class_weights)
             losses.append(float(loss.item()))
+            if max_batches is not None and (batch_idx + 1) >= max_batches:
+                break
     model.train()
     if not losses:
         return 0.0
@@ -179,12 +181,22 @@ def main():
     total_steps = max(1, (len(train_loader) * epochs) // max(1, grad_accum))
     warmup_steps = int(train_cfg.get("warmup_steps", 50))
     eval_every = int(train_cfg.get("eval_every_steps", 100))
+    quick_eval_episodes = int(train_cfg.get("val_episodes", 20))
+    final_eval_episodes = int(env_cfg.get("eval_episodes", 200))
+    early_stop_success_rate = float(train_cfg.get("early_stop_success_rate", 1.0))
+    early_stop_patience = int(train_cfg.get("early_stop_patience", 3))
+    eval_show_progress = bool(train_cfg.get("eval_show_progress", False))
+    val_loss_max_batches = train_cfg.get("val_loss_max_batches", None)
+    if val_loss_max_batches is not None:
+        val_loss_max_batches = int(val_loss_max_batches)
     console_every = int(log_cfg.get("console_every_steps", 20))
 
     global_step = 0
     best_success = -1.0
     running_loss = 0.0
     train_start = time.time()
+    perfect_eval_streak = 0
+    should_stop = False
 
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -239,8 +251,15 @@ def main():
                 ex_logger.log(payload)
 
                 if global_step % eval_every == 0:
-                    val_loss = evaluate_val_loss(model, val_loader, action_mapping, device, class_weights=class_weights)
-                    eval_episodes = min(100, int(env_cfg.get("eval_episodes", 500)))
+                    val_loss = evaluate_val_loss(
+                        model,
+                        val_loader,
+                        action_mapping,
+                        device,
+                        class_weights=class_weights,
+                        max_batches=val_loss_max_batches,
+                    )
+                    eval_episodes = max(1, quick_eval_episodes)
                     rollout = evaluate_policy(
                         model=model,
                         tokenizer=tokenizer,
@@ -251,6 +270,7 @@ def main():
                         device=device,
                         tile_size=int(env_cfg.get("tile_size", 8)),
                         max_steps=env_cfg.get("max_steps", None),
+                        show_progress=eval_show_progress,
                     )
 
                     eval_payload = {
@@ -286,6 +306,37 @@ def main():
                             ckpt_dir=run_dir / "checkpoints",
                         )
 
+                    if rollout["success_rate"] >= early_stop_success_rate - 1e-12:
+                        perfect_eval_streak += 1
+                    else:
+                        perfect_eval_streak = 0
+
+                    if early_stop_patience > 0 and perfect_eval_streak >= early_stop_patience:
+                        logger.info(
+                            "Early stopping at step=%d after %d consecutive evals with success_rate >= %.4f",
+                            global_step,
+                            perfect_eval_streak,
+                            early_stop_success_rate,
+                        )
+                        ex_logger.log(
+                            {
+                                "phase": "early_stop",
+                                "global_step": global_step,
+                                "loss": val_loss,
+                                "success_rate": rollout["success_rate"],
+                                "avg_return": rollout["avg_return"],
+                                "avg_steps_to_goal": rollout["avg_steps_to_goal"],
+                                "env_steps": eval_episodes * int(env_cfg.get("max_steps") or 4 * 8 * 8),
+                                "episodes": eval_episodes,
+                                "wallclock": time.time() - train_start,
+                            }
+                        )
+                        should_stop = True
+                        break
+
+        if should_stop:
+            break
+
     save_last(model=model, optimizer=optimizer, step=global_step, payload={}, ckpt_dir=run_dir / "checkpoints")
 
     # Final full evaluation
@@ -294,11 +345,12 @@ def main():
         tokenizer=tokenizer,
         action_mapping=action_mapping,
         env_id=env_cfg["env_id"],
-        eval_episodes=int(env_cfg.get("eval_episodes", 500)),
+        eval_episodes=final_eval_episodes,
         seed=seed + 30_000,
         device=device,
         tile_size=int(env_cfg.get("tile_size", 8)),
         max_steps=env_cfg.get("max_steps", None),
+        show_progress=True,
     )
     ex_logger.log(
         {
@@ -308,8 +360,8 @@ def main():
             "success_rate": final_metrics["success_rate"],
             "avg_return": final_metrics["avg_return"],
             "avg_steps_to_goal": final_metrics["avg_steps_to_goal"],
-            "env_steps": int(env_cfg.get("eval_episodes", 500)) * int(env_cfg.get("max_steps") or 4 * 8 * 8),
-            "episodes": int(env_cfg.get("eval_episodes", 500)),
+            "env_steps": final_eval_episodes * int(env_cfg.get("max_steps") or 4 * 8 * 8),
+            "episodes": final_eval_episodes,
             "wallclock": time.time() - train_start,
         }
     )
