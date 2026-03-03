@@ -1,47 +1,239 @@
-\documentclass[11pt,a4paper]{article}
+% report/main.tex
+\documentclass[10pt,a4paper]{article}
+
+% --- Language / fonts (pdfLaTeX-friendly) ---
+\usepackage[T2A]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
+\usepackage[russian,english]{babel}
+
+% --- Layout ---
+\usepackage[a4paper,margin=1.7cm]{geometry}
+\usepackage{microtype}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.35em}
+\usepackage{enumitem}
+\setlist[itemize]{noitemsep,topsep=0.2em,leftmargin=1.25em}
+\setlist[enumerate]{noitemsep,topsep=0.2em,leftmargin=1.25em}
+
+% --- Figures / tables ---
 \usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage[margin=1in]{geometry}
-\title{NanoVLM Fine-Tuning in MiniGrid EmptyEnv\\SFT vs GRPO-Action vs GRPO-Text+Action}
-\author{T\_Lab Pipeline}
-\date{\today}
+\usepackage{float}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+% --- Links / refs ---
+\usepackage[hidelinks]{hyperref}
+
+% --- Code / verbatim inputs ---
+\usepackage{fancyvrb}
+
+% --- Bibliography compact ---
+\usepackage[numbers]{natbib}
+\renewcommand{\bibsection}{\section*{References}}
+\setlength{\bibsep}{0pt}
+
+% Paths
+\graphicspath{{figures/}}
+
+% ---------- Macros ----------
+\newcommand{\method}[1]{\textbf{#1}}
+\newcommand{\tok}[1]{\texttt{#1}}
+\newcommand{\placeholder}[1]{\textcolor{gray}{\textit{#1}}}
+
+\title{\vspace{-0.8em}\textbf{Fine-tuning NanoVLM для управления агентом в MiniGrid EmptyEnv: SFT vs GRPO-action vs GRPO-text+action}\vspace{-0.4em}}
+\author{\placeholder{Автор: ФИО / группа}}
+\date{\vspace{-0.8em}\placeholder{Дата: YYYY-MM-DD}}
 
 \begin{document}
 \maketitle
+\vspace{-0.8em}
 
-\section{Introduction}
-This report summarizes a reproducible training pipeline for controlling an agent in MiniGrid EmptyEnv with NanoVLM, comparing supervised fine-tuning (SFT) and two GRPO variants.
+\section{Постановка}
+Нужно адаптировать vision-and-language модель \method{NanoVLM} для управления агентом в среде \method{MiniGrid EmptyEnv} \citep{minigrid-emptyenv, nanovlm-repo}.
+Сравниваются три режима дообучения:
+\begin{itemize}
+  \item \method{SFT}: supervised fine-tuning на экспертных траекториях.
+  \item \method{GRPO-action}: RL-дообучение через Guided Regularized Policy Optimization, где модель \emph{напрямую} выдаёт действие \citep{grpo}.
+  \item \method{GRPO-text+action}: GRPO, где модель генерирует короткий текст (2--3 предложения) + действие.
+\end{itemize}
 
-\section{Method}
-We train a policy to output action tokens from RGB observations and mission text. GRPO uses grouped rollouts and normalized advantages within each group.
+Метрики: \textbf{success rate} (доля эпизодов, где агент достиг цели в пределах horizon) и \textbf{return} (суммарная награда MiniGrid; детали см. документацию \citep{minigrid-emptyenv}). Цель сравнения: \textbf{(i)} итоговое качество, \textbf{(ii)} sample efficiency (env steps / episodes до достижения success=0.8 и 0.9), \textbf{(iii)} влияние формата вывода.
 
-\section{Setup}
-Default environment is \texttt{MiniGrid-Empty-8x8-v0} with \texttt{RGBImgObsWrapper}. The model starts from \texttt{lusxvr/nanoVLM-222M} and uses PEFT-lite updates.
+\section{Данные и эксперт}
+\textbf{Среда.} EmptyEnv представляет собой пустую комнату с целью (goal); агент наблюдает RGB-изображение/визуальные токены и должен добраться до goal \citep{minigrid-emptyenv}.
 
-\section{Results}
-\subsection{Curves}
-\begin{figure}[h]
+\textbf{Эксперт.} Для генерации датасета используется детерминированный эксперт-планировщик на полном состоянии среды (например, shortest-path planning). В EmptyEnv отсутствие препятствий позволяет строить план как последовательность поворотов и шагов вперёд до достижения цели.
+\emph{Почему так:} эксперт даёт близко-оптимальные траектории, прост в реализации и воспроизводим, а SFT становится чистым измерением «умеет ли модель имитировать поведение по визуальному наблюдению».
+
+\textbf{Формирование датасета.} Записываются траектории $(o_t, a_t)$ (и опционально $r_t, done_t$) из $N$ эпизодов, где $o_t$ — наблюдение (изображение), $a_t$ — следующее действие эксперта.
+
+\smallskip
+\textbf{Примечание (логи/формат).} Скрипт генерации таблицы/графиков обычно ожидает логи в формате CSV/JSONL со столбцами (или ключами) минимум:
+\tok{env_steps}, \tok{episode}, \tok{success} (0/1), \tok{return}, \tok{success_rate_rolling}, \tok{return_mean_rolling}.
+Фигуры в \tok{report/figures/*.png} считаются построенными из этих логов.
+
+\section{Методы}
+
+\subsection{Форматы входа/выхода}
+\textbf{Вход.} На шаге $t$ модель получает визуальное наблюдение $o_t$ и краткий текстовый промпт (например, «Выбери следующее действие»).
+
+\textbf{Выход A: direct action token.}
+Модель генерирует один токен действия из фиксированного словаря MiniGrid, например:
+\[
+a_t \in \{\tok{left},\tok{right},\tok{forward},\tok{pickup},\tok{drop},\tok{toggle},\tok{done}\}.
+\]
+(Точный словарь/маппинг на action-id соответствует реализации в коде.)
+
+\textbf{Выход B: text (2--3 sentences) + action token.}
+Модель генерирует короткое описание/план и затем действие в строгом формате:
+\begin{quote}\small
+\tok{PLAN: <sentence1> <sentence2> [<sentence3>]}\\
+\tok{ACTION: <action\_token>}
+\end{quote}
+\emph{Обоснование:} короткий план может стабилизировать обучение в RL за счёт более структурированной внутренней репрезентации и уменьшения «случайных» действий; формат фиксирован (легче парсить и штрафовать отклонения).
+
+\subsection{SFT (baseline)}
+SFT минимизирует кросс-энтропию по следующему действию эксперта:
+\[
+\mathcal{L}_{\text{SFT}} = -\mathbb{E}_{(o_t,a_t)\sim \mathcal{D}} \log \pi_\theta(a_t \mid o_t, \text{prompt}).
+\]
+Для режима text+action в SFT (если он использовался как претрейн для GRPO-text+action) таргет может включать и токены плана, и \tok{ACTION}.
+
+\subsection{GRPO-action}
+Политика инициализируется весами SFT.
+GRPO обновляет $\pi_\theta$ по группам сэмплов: для каждого состояния собирается группа из $G$ ответов (траекторий/действий), рассчитывается групповая нормализация преимущества и добавляется регуляризация к референс-политике $\pi_{\text{ref}}$ (часто это замороженная копия текущей/стартовой политики) \citep{grpo}.
+Схематично оптимизируется:
+\[
+\max_\theta \ \mathbb{E}\left[\hat{A}\cdot \log \pi_\theta(a_t\mid \cdot)\right] - \beta \, \mathrm{KL}\!\left(\pi_\theta \,\|\, \pi_{\text{ref}}\right),
+\]
+где $\hat{A}$ — advantage на основе сравнения ответов внутри группы.
+
+\subsection{GRPO-text+action}
+Аналогично GRPO-action, но действие извлекается из строки \tok{ACTION: ...}. Reward считается по фактическому действию в среде, плюс возможны \textbf{форматные штрафы} (опционально): если нарушен шаблон, если текст слишком длинный, если отсутствует \tok{ACTION}, и т.п.
+Это делает канал «планирования» контролируемым, но не даёт ему «захватить» оптимизацию.
+
+\section{Результаты}
+\subsection{Кривые обучения}
+Рис.~\ref{fig:success} показывает success rate для трёх режимов. Возвраты (return) показаны на Рис.~\ref{fig:return}.
+\begin{figure}[H]
   \centering
-  \IfFileExists{figures/success_vs_env_steps.png}{\includegraphics[width=0.8\linewidth]{figures/success_vs_env_steps.png}}{\fbox{Missing figure: success\_vs\_env\_steps.png}}
-  \caption{Success rate vs environment steps.}
+  \begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{sft_success.png}
+    \caption{SFT}
+  \end{subfigure}
+  \begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{grpo_action_success.png}
+    \caption{GRPO-action}
+  \end{subfigure}
+  \begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{grpo_text_action_success.png}
+    \caption{GRPO-text+action}
+  \end{subfigure}
+  \caption{Success rate по мере обучения (ось X: env steps или epochs — как в ваших логах/графиках).}
+  \label{fig:success}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \IfFileExists{figures/return_vs_env_steps.png}{\includegraphics[width=0.8\linewidth]{figures/return_vs_env_steps.png}}{\fbox{Missing figure: return\_vs\_env\_steps.png}}
-  \caption{Average return vs environment steps.}
+  \IfFileExists{return_curves.png}{
+    \includegraphics[width=0.98\linewidth]{return_curves.png}
+  }{
+    \placeholder{(return\_curves.png не найден: положите сюда общий график или замените на три отдельных)}
+  }
+  \caption{Return curves для трёх режимов (единый график или объединённые кривые).}
+  \label{fig:return}
 \end{figure}
 
-\subsection{Summary Table}
-\IfFileExists{tables/results_table.tex}{\input{tables/results_table.tex}}{\fbox{Missing table: tables/results\_table.tex}}
+\subsection{Сводная таблица и sample efficiency}
+Таблица~\ref{tab:results} автоматически подставляется из \tok{report/tables/results_table.tex}.
+\begin{table}[H]
+  \centering
+  \small
+  \input{tables/results_table.tex}
+  \caption{Сводные результаты: финальные метрики и sample efficiency. \placeholder{Числа подставляются из results\_table.tex.}}
+  \label{tab:results}
+\end{table}
 
-\section{Discussion}
-The artifacts in \texttt{results/} and generated plots/tables allow direct comparison of sample efficiency and final performance.
+\textbf{Sample efficiency сравнение.}
+До порогов success=0.8 и success=0.9 сравниваются:
+\begin{itemize}
+  \item \textbf{env steps}: сколько шагов среды требуется до достижения порога (по сглаженному success rate).
+  \item \textbf{episodes}: сколько эпизодов требуется до достижения порога.
+\end{itemize}
+\placeholder{В тексте отчёта не придумываем значения: см. Table~\ref{tab:results} (столбцы steps\_to\_0.8 / steps\_to\_0.9 и episodes\_to\_0.8 / episodes\_to\_0.9, если они присутствуют).}
 
-\bibliographystyle{plain}
+\smallskip
+\textbf{Примечание (ожидаемые поля таблицы).}
+В \tok{results\_table.tex} обычно ожидаются строки для трёх методов и колонки вида:
+\[
+\text{final\_success}, \ \text{final\_return}, \
+\text{steps\_to\_0.8}, \ \text{steps\_to\_0.9}, \
+\text{episodes\_to\_0.8}, \ \text{episodes\_to\_0.9}
+\]
+(названия могут отличаться; таблица считается «истиной», а текст ссылается на неё).
+
+\subsection{Гиперпараметры (из config.yaml)}
+Ниже — конфиги запусков, подгружаемые из \tok{results/*/config.yaml}. Это нужно, чтобы отчёт был воспроизводимым (без копипасты в текст).
+\begin{figure}[H]
+\centering
+\small
+\begin{minipage}{0.32\linewidth}
+\textbf{SFT config}
+\IfFileExists{../results/sft/config.yaml}{
+\VerbatimInput[fontsize=\scriptsize,frame=single]{../results/sft/config.yaml}
+}{
+\placeholder{(нет ../results/sft/config.yaml)}
+}
+\end{minipage}\hfill
+\begin{minipage}{0.32\linewidth}
+\textbf{GRPO-action config}
+\IfFileExists{../results/grpo_action/config.yaml}{
+\VerbatimInput[fontsize=\scriptsize,frame=single]{../results/grpo_action/config.yaml}
+}{
+\placeholder{(нет ../results/grpo\_action/config.yaml)}
+}
+\end{minipage}\hfill
+\begin{minipage}{0.32\linewidth}
+\textbf{GRPO-text+action config}
+\IfFileExists{../results/grpo_text_action/config.yaml}{
+\VerbatimInput[fontsize=\scriptsize,frame=single]{../results/grpo_text_action/config.yaml}
+}{
+\placeholder{(нет ../results/grpo\_text\_action/config.yaml)}
+}
+\end{minipage}
+\caption{Гиперпараметры запусков (подставляются из YAML-конфигов).}
+\end{figure}
+
+\section{Короткое обсуждение и future work}
+\textbf{Что смотреть в failure modes:}
+\begin{itemize}
+  \item \emph{Ошибки ориентации:} агент «крутится» из-за неустойчивого определения направления по визуальному наблюдению.
+  \item \emph{Длинные эпизоды без прогресса:} разреженная награда и слабая exploration в RL.
+  \item \emph{Форматные срывы в text+action:} модель забывает \tok{ACTION:} или начинает генерить слишком много текста (лечится ограничением длины/штрафами).
+\end{itemize}
+
+\textbf{Короткий итог.} \placeholder{Вывод формулируется по Table~\ref{tab:results}: кто быстрее достигает 0.8/0.9 success и у кого выше final success/return.}
+
+\textbf{Future work (5--10 пунктов):}
+\begin{itemize}
+  \item Curriculum по размеру карты и max\_steps (от маленьких к большим).
+  \item Балансировка датасета эксперта по направлениям/позициям цели (чтобы не доминировали «простые» случаи).
+  \item Data augmentation для визуального входа (простые трансформации) + проверка устойчивости.
+  \item PEFT/LoRA вместо полного fine-tune (дешевле и стабильнее), отдельно для vision и language частей.
+  \item Явные форматные штрафы/награды для text+action (валидный шаблон, лимит токенов плана).
+  \item Reward shaping: небольшая плотная компонента по приближению к цели (если допускается постановкой).
+  \item Увеличение group size $G$ в GRPO и анализ trade-off compute vs sample efficiency.
+  \item Анализ обобщения на другие EmptyEnv размеры/seed’ы (OOD по старту/goal).
+\end{itemize}
+
+\vspace{-0.2em}
+\bibliographystyle{unsrtnat}
 \bibliography{refs}
 
 \end{document}
